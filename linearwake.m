@@ -1,4 +1,4 @@
-function [max_g] = linearwake(sigx_um, sigz_um, Qb_pC, p_mbar, r_res, z_res)
+function [max_g] = linearwake(sigx_um, sigz_um, Qb_pC, p_mbar, visu, r_res, z_res)
 
     % define colormap
     function map = cmap(mn,mx)
@@ -13,9 +13,8 @@ function [max_g] = linearwake(sigx_um, sigz_um, Qb_pC, p_mbar, r_res, z_res)
 
 
     % DEFINE PARAMETERS
-    % default values
-    if ~exist('r_res','var'); r_res = 251; end;
-    if ~exist('z_res','var'); z_res = 501; end;
+    % visualize by default
+    if ~exist('visu','var'); visu = true; end;
     
     % "fundamental" constants
     SI_kb = 1.38064852e-23; % [J/K] Boltzmann constant
@@ -38,15 +37,28 @@ function [max_g] = linearwake(sigx_um, sigz_um, Qb_pC, p_mbar, r_res, z_res)
     
     % plasma wavenumber
     k_p = sqrt(n0*SI_e^2/(SI_eps0*SI_me*SI_c^2)); % [1/m]
+    lambda_p = 2*pi/k_p; % [m]
+    
+    % box size and auto-resolution
+    r_edge = 5*sigx;
+    z_edge = 5*sigz;
+    if ~exist('r_res','var'); r_res = 51; end;
+    if ~exist('z_res','var')
+        res_per_lambdap = 10;
+        min_z_res = 51;
+        z_res = max(res_per_lambdap*(z_edge*2)/lambda_p, min_z_res);
+    end;
+    r_res = floor(r_res/2)*2+1; % make odd
+    z_res = floor(z_res/2)*2+1; % make odd
     
     % linear density perturbation (nb < n0)
-    rs = linspace(-5*sigx, 5*sigx, r_res);
-    zs = linspace(-5*sigz, 5*sigz, z_res);
+    rs = linspace(-r_edge, r_edge, r_res);
+    zs = linspace(-z_edge, z_edge, z_res);
     nbs = -(Qb/SI_e) * normpdf(rs, 0, sigx)'*normpdf(zs, 0, sigz)/sqrt(2*pi*sigx^2);
     
     
     % CALCULATE DENSITY PERTURBATION
-    disp('Calculating densities...');
+    if visu; disp('Calculating densities...'); end
     dns = zeros(numel(rs), numel(zs));
     for i = 1:numel(rs)
         for j = numel(zs):(-1):1
@@ -57,13 +69,13 @@ function [max_g] = linearwake(sigx_um, sigz_um, Qb_pC, p_mbar, r_res, z_res)
         end
         
         % display progress bar
-        if mod(i,50)==0; fprintf([num2str(round(i/numel(rs)*100)) '%% ']); end
+        if visu && mod(i,50)==0; fprintf([num2str(round(i/numel(rs)*100)) '%% ']); end
     end
-    disp('... Done!');
+    if visu; disp('... Done!'); end
     
     
     % CALCULATE FIELDS
-    disp('Calculating fields...');
+    if visu; disp('Calculating fields...'); end
     zs_f = zs(2:(end-1));
     rs_f = rs(2:(end-1));
     Ezs = zeros(numel(rs_f), numel(zs_f));
@@ -87,9 +99,9 @@ function [max_g] = linearwake(sigx_um, sigz_um, Qb_pC, p_mbar, r_res, z_res)
         end
         
         % display progress bar
-        if mod(i,50)==0; fprintf([num2str(round(i/numel(rs_f)*100)) '%% ']); end
+        if visu && mod(i,50)==0; fprintf([num2str(round(i/numel(rs_f)*100)) '%% ']); end
     end
-    disp('... Done!');
+    if visu; disp('... Done!'); end
     
     
     % on axis field gradient
@@ -99,69 +111,73 @@ function [max_g] = linearwake(sigx_um, sigz_um, Qb_pC, p_mbar, r_res, z_res)
     
     
     % PLOTS
-    figure(1);
-    set(gcf,'color','w');
-    colormap(cmap());
+    if visu
     
-    % beam density
-    subplot(4,2,1);
-    imagesc(zs*1e6, rs*1e6, nbs/1e6);
-    xlabel('z [\mum]');
-    ylabel('r [\mum]');
-    title(['Beam density (n_b = ' num2str(abs(nb/1e6),'%2.2g') '/cc)']);
-    c = colorbar;
-    ylabel(c,'Beam density [1/cc]');
-    caxis([min(min(nbs)), -min(min(nbs))]/1e6);
-    
-    % plasma density
-    subplot(4,2,2);
-    imagesc(zs*1e6, rs*1e6, dns/1e6);
-    xlabel('z [\mum]');
-    ylabel('r [\mum]');
-    title(['Plasma density (n_0 = ' num2str(abs(n0/1e6),'%2.2g') '/cc)']);
-    c = colorbar;
-    ylabel(c,'Density perturbation [1/cc]');
-    caxis([min(min(dns)), -min(min(dns))]/1e6);
-    
-    % longitudinal field
-    subplot(4,2,3);
-    imagesc(zs_f*1e6, rs_f*1e6, Ezs*1e-9);
-    xlabel('z [\mum]');
-    ylabel('r [\mum]');
-    title('Longitudinal field');
-    c = colorbar;
-    ylabel(c,'Accelerating gradient [GeV/m]');
-    
-    % transverse field
-    subplot(4,2,4);
-    imagesc(zs_f*1e6, rs_f*1e6, Ers*1e-9);
-    xlabel('z [\mum]');
-    ylabel('r [\mum]');
-    title('Transverse field');
-    c = colorbar;
-    ylabel(c,'Transverse force [GeV/m]');
-    
-    % equivalent B-field
-    subplot(4,2,5:6);
-    [~, mid_beam_ind] = min(abs(zs_f));
-    [~, one_sig_ind] = min(abs(zs_f - sigz_um*1e-6));
-    plot(rs_f*1e6, Ers(:,mid_beam_ind)/SI_c, ...
-        rs_f*1e6, Ers(:,one_sig_ind)/SI_c, 'LineWidth',2);
-    xlim([min(rs_f), max(rs_f)]*1e6);
-    xlabel('r [\mum]');
-    ylabel('B_{equiv} [T]');
-    title('B-field (equivalent) vs. radius');
-    legend('Mid-beam', 'At +1\sigma_z');
-    
-    % magnetic field gradient vs. z
-    subplot(4,2,7:8);
-    yyaxis left;
-    plot(zs_f*1e6, gs,'LineWidth',2); 
-    xlabel('z [\mum]');
-    ylabel('g [T/m]');
-    title(['On-axis magnetic field gradient vs. z (max ' num2str(max_g,'%g') ' T/m)']);
-    yyaxis right;
-    plot(zs_f*1e6, Qb/SI_e*normpdf(zs_f, 0, sigz)/(2*pi*sigx^2),'LineWidth',2); 
-    ylabel('dQ/dz [C/m]');
+        figure(1);
+        set(gcf,'color','w');
+        colormap(cmap());
 
+        % beam density
+        subplot(4,2,1);
+        imagesc(zs*1e6, rs*1e6, nbs/1e6);
+        xlabel('z [\mum]');
+        ylabel('r [\mum]');
+        title(['Beam density (n_b = ' num2str(abs(nb/1e6),'%2.2g') '/cc)']);
+        c = colorbar;
+        ylabel(c,'Beam density [1/cc]');
+        caxis([min(min(nbs)), -min(min(nbs))]/1e6);
+
+        % plasma density
+        subplot(4,2,2);
+        imagesc(zs*1e6, rs*1e6, dns/1e6);
+        xlabel('z [\mum]');
+        ylabel('r [\mum]');
+        title(['Plasma density (n_0 = ' num2str(abs(n0/1e6),'%2.2g') '/cc)']);
+        c = colorbar;
+        ylabel(c,'Density perturbation [1/cc]');
+        caxis([min(min(dns)), -min(min(dns))]/1e6);
+
+        % longitudinal field
+        subplot(4,2,3);
+        imagesc(zs_f*1e6, rs_f*1e6, Ezs*1e-9);
+        xlabel('z [\mum]');
+        ylabel('r [\mum]');
+        title('Longitudinal field');
+        c = colorbar;
+        ylabel(c,'Accelerating gradient [GeV/m]');
+
+        % transverse field
+        subplot(4,2,4);
+        imagesc(zs_f*1e6, rs_f*1e6, Ers*1e-9);
+        xlabel('z [\mum]');
+        ylabel('r [\mum]');
+        title('Transverse field');
+        c = colorbar;
+        ylabel(c,'Transverse force [GeV/m]');
+
+        % equivalent B-field
+        subplot(4,2,5:6);
+        [~, mid_beam_ind] = min(abs(zs_f));
+        [~, one_sig_ind] = min(abs(zs_f - sigz_um*1e-6));
+        plot(rs_f*1e6, Ers(:,mid_beam_ind)/SI_c, ...
+            rs_f*1e6, Ers(:,one_sig_ind)/SI_c, 'LineWidth',2);
+        xlim([min(rs_f), max(rs_f)]*1e6);
+        xlabel('r [\mum]');
+        ylabel('B_{equiv} [T]');
+        title('B-field (equivalent) vs. radius');
+        legend('Mid-beam', 'At +1\sigma_z');
+
+        % magnetic field gradient vs. z
+        subplot(4,2,7:8);
+        yyaxis left;
+        plot(zs_f*1e6, gs,'LineWidth',2); 
+        xlabel('z [\mum]');
+        ylabel('g [T/m]');
+        title(['On-axis magnetic field gradient vs. z (max ' num2str(max_g,'%g') ' T/m)']);
+        yyaxis right;
+        plot(zs_f*1e6, Qb/SI_e*normpdf(zs_f, 0, sigz)/(2*pi*sigx^2),'LineWidth',2); 
+        ylabel('dQ/dz [C/m]');
+        
+    end
+    
 end
